@@ -4,16 +4,25 @@ import picamera
 import picamera.array
 import time
 import numpy as np
-
 import signal
 import sys
+import errno
 
 terminated=False
 def signal_handler(sig, frame):
+    stop()
+
+def sigpipe_handler(sig,frame):
+    stop()
+    
+def stop():
     global terminated
+    if camera.recording:
+        camera.stop_recording()
     terminated = True
 
 signal.signal(signal.SIGINT, signal_handler)
+# signal.signal(signal.SIGPIPE, sigpipe_handler)
 
 halfwidth = 0
 
@@ -23,7 +32,6 @@ class MyAnalysis(picamera.array.PiRGBAnalysis):
         self.frame_num = 0
 
     def analyse(self, a):
-        global halfwidth
         lr = int(np.mean(a[:halfwidth,:, 0]))
         lg = int(np.mean(a[:halfwidth,:, 1]))
         lb = int(np.mean(a[:halfwidth,:, 2]))
@@ -33,9 +41,10 @@ class MyAnalysis(picamera.array.PiRGBAnalysis):
         rb = int(np.mean(a[halfwidth:,:, 2]))
 
         lc = (lr << 16) | (lg << 8) | lb
-
         rc = (rr << 16) | (rg << 8) | rb
-        print('C L #%06x R #%06x' % (lc, rc))
+
+        print('Left:#%06x\nRight:#%06x' % (lc, rc))
+        # sys.stdout.flush()
 
         self.frame_num += 1
 
@@ -48,15 +57,13 @@ with picamera.PiCamera() as camera:
     camera.vflip = True
     camera.hflip = True
 
-    length = 5
-    totlength = 0
 
     with MyAnalysis(camera) as output:
-        while not terminated:
-            camera.start_recording(output, 'rgb')
-            camera.wait_recording(length)
-            camera.stop_recording()
-            totlength += length
-        print('FPS: %.2f' % (output.frame_num / totlength))
-
-print("Process done... Closing...")
+        start = time.perf_counter()
+        camera.start_recording(output, 'rgb')
+        camera.wait_recording(86400)
+        end = time.perf_counter()
+        total_time = end-start
+        sys.stdout.write('Time: %.2f' % total_time)
+        sys.stdout.write('FPS: %.2f' % (output.frame_num / total_time))
+        print("Done")
